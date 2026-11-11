@@ -11,7 +11,7 @@
         button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; border-radius: 4px; width: 100%; }
         button:disabled { background: #ddd; cursor: not-allowed; }
         
-        /* Panel hiển thị thông tin trạng thái */
+        /* Panel hiển thị thông tin và danh sách file */
         .status-panel { background: #f1f3f5; border: 1px solid #ced4da; padding: 15px; border-radius: 6px; margin-top: 15px; display: none; }
         .status-panel h4 { margin-top: 0; color: #333; margin-bottom: 10px; font-size: 16px; }
         
@@ -19,7 +19,12 @@
         .progress-container { width: 100%; background: #e9ecef; border-radius: 4px; overflow: hidden; height: 20px; margin-bottom: 10px; }
         .progress-bar { width: 0%; height: 100%; background: #4CAF50; text-align: center; color: white; font-size: 12px; line-height: 20px; transition: width 0.2s; }
         
-        ul { padding-left: 20px; margin: 5px 0; font-size: 14px; color: #555; }
+        /* Danh sách sắp xếp file */
+        #fileListContainer { list-style: none; padding: 0; margin: 10px 0; }
+        .file-item { display: flex; justify-content: space-between; align-items: center; background: white; border: 1px solid #ddd; padding: 8px 12px; margin-bottom: 5px; border-radius: 4px; font-size: 14px; }
+        .file-actions button { background: #007bff; padding: 4px 8px; font-size: 12px; width: auto; margin-left: 4px; }
+        .file-actions button:disabled { background: #ccc; }
+
         video { width: 100%; margin-top: 15px; border-radius: 4px; }
     </style>
 </head>
@@ -31,16 +36,19 @@
         <input type="file" id="uploader" accept="video/mp4" multiple>
     </div>
 
-    <button id="processBtn" onclick="mergeVideos()" disabled>Bắt đầu ghép video</button>
-
-    <!-- Panel trạng thái chi tiết -->
+    <!-- Panel trạng thái và sắp xếp -->
     <div id="statusPanel" class="status-panel">
         <h4 id="mainStatus">Sẵn sàng...</h4>
         <div class="progress-container">
             <div id="progressBar" class="progress-bar">0%</div>
         </div>
-        <div id="fileStats" style="font-size: 14px; color: #333;"></div>
+        <p style="margin: 5px 0; font-size: 14px;"><b>Sắp xếp thứ tự ghép video:</b></p>
+        <ul id="fileListContainer"></ul>
+        <div id="totalDuration" style="font-size: 14px; color: #333; margin-top: 10px;"></div>
     </div>
+
+    <br>
+    <button id="processBtn" onclick="mergeVideos()" disabled>Bắt đầu ghép video</button>
     
     <div>
         <video id="outputVideo" controls style="display:none;"></video>
@@ -60,11 +68,13 @@
     const statusPanel = document.getElementById('statusPanel');
     const mainStatus = document.getElementById('mainStatus');
     const progressBar = document.getElementById('progressBar');
-    const fileStats = document.getElementById('fileStats');
+    const fileListContainer = document.getElementById('fileListContainer');
+    const totalDurationDiv = document.getElementById('totalDuration');
     const outputVideo = document.getElementById('outputVideo');
     const downloadLink = document.getElementById('downloadLink');
 
-    // Hàm đọc thời lượng (duration) của file video thông qua thẻ video ẩn
+    let currentFiles = []; // Mảng lưu trữ danh sách file kèm thời lượng
+
     function getVideoDuration(file) {
         return new Promise((resolve) => {
             const video = document.createElement('video');
@@ -78,31 +88,61 @@
     }
 
     uploader.addEventListener('change', async () => {
-        if (uploader.files.length >= 2) {
+        const files = Array.from(uploader.files);
+        if (files.length >= 2) {
             processBtn.disabled = false;
             statusPanel.style.display = 'block';
-            mainStatus.innerText = `Đã chọn ${uploader.files.length} file video. Đang phân tích thông tin...`;
+            mainStatus.innerText = `Đã chọn ${files.length} file video. Đang phân tích...`;
             
-            let details = "<ul>";
-            let totalSec = 0;
-            for (let i = 0; i < uploader.files.length; i++) {
-                let duration = await getVideoDuration(uploader.files[i]);
-                totalSec += duration;
-                details += `<li>File ${i + 1} (${uploader.files[i].name}): <b>${duration.toFixed(2)} giây</b></li>`;
+            currentFiles = [];
+            for (let file of files) {
+                let duration = await getVideoDuration(file);
+                currentFiles.push({ file, duration });
             }
-            details += `</ul>`;
-            
-            fileStats.innerHTML = `
-                ${details}
-                <p><b>Tổng độ dài các file nối:</b> <span style="color: #d9534f;">${totalSec.toFixed(2)} giây</span></p>
-            `;
+
+            renderFileList();
             progressBar.style.width = '0%';
             progressBar.innerText = '0%';
         } else {
             processBtn.disabled = true;
             statusPanel.style.display = 'none';
+            currentFiles = [];
         }
     });
+
+    // Hàm hiển thị danh sách giao diện sắp xếp
+    async function renderFileList() {
+        fileListContainer.innerHTML = '';
+        let totalSec = 0;
+
+        currentFiles.forEach((item, index) => {
+            totalSec += item.duration;
+            const li = document.createElement('li');
+            li.className = 'file-item';
+            li.innerHTML = `
+                <span><b>#${index + 1}</b> ${item.file.name} (${item.duration.toFixed(2)}s)</span>
+                <div class="file-actions">
+                    <button onclick="moveItem(${index}, -1)" ${index === 0 ? 'disabled' : ''}>⬆️ Lên</button>
+                    <button onclick="moveItem(${index}, 1)" ${index === currentFiles.length - 1 ? 'disabled' : ''}>⬇️ Xuống</button>
+                </div>
+            `;
+            fileListContainer.appendChild(li);
+        });
+
+        totalDurationDiv.innerHTML = `<b>Tổng độ dài các file nối:</b> <span style="color: #d9534f;">${totalSec.toFixed(2)} giây</span>`;
+        mainStatus.innerText = `Sẵn sàng ghép ${currentFiles.length} file video theo thứ tự trên!`;
+    }
+
+    // Hàm thay đổi vị trí file lên hoặc xuống
+    window.moveItem = function(index, direction) {
+        const newIndex = index + direction;
+        if (newIndex >= 0 && newIndex < currentFiles.length) {
+            const temp = currentFiles[index];
+            currentFiles[index] = currentFiles[newIndex];
+            currentFiles[newIndex] = temp;
+            renderFileList();
+        }
+    }
 
     async function mergeVideos() {
         processBtn.disabled = true;
@@ -115,22 +155,18 @@
                 await ffmpeg.load();
             }
 
-            const files = uploader.files;
             let filterComplex = "";
             let inputs = [];
 
-            // Tính tổng thời lượng để làm mốc tính % progress ước lượng
-            let totalExpectedDuration = 0;
-            for (let i = 0; i < files.length; i++) {
-                totalExpectedDuration += await getVideoDuration(files[i]);
+            for (let i = 0; i < currentFiles.length; i++) {
                 let fileName = `input${i}.mp4`;
-                mainStatus.innerText = `Đang nạp file (${i + 1}/${files.length}): ${files[i].name}`;
-                ffmpeg.FS('writeFile', fileName, await fetchFile(files[i]));
+                mainStatus.innerText = `Đang nạp file (${i + 1}/${currentFiles.length}): ${currentFiles[i].file.name}`;
+                ffmpeg.FS('writeFile', fileName, await fetchFile(currentFiles[i].file));
                 inputs.push('-i', fileName);
                 filterComplex += `[${i}:v:0][${i}:a:0]`;
             }
 
-            filterComplex += `concat=n=${files.length}:v=1:a=1[outv][outa]`;
+            filterComplex += `concat=n=${currentFiles.length}:v=1:a=1[outv][outa]`;
 
             // Lắng nghe tiến trình render từ ffmpeg
             ffmpeg.setProgress(({ ratio }) => {
@@ -143,32 +179,4 @@
             mainStatus.innerText = "Đang tiến hành ghép nối video...";
             
             await ffmpeg.run(
-                ...inputs, 
-                '-filter_complex', filterComplex, 
-                '-map', '[outv]', 
-                '-map', '[outa]', 
-                'output.mp4'
-            );
-
-            mainStatus.innerText = "Ghép video thành công!";
-            progressBar.style.width = '100%';
-            progressBar.innerText = '100%';
-            
-            const data = ffmpeg.FS('readFile', 'output.mp4');
-            const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
-            
-            outputVideo.src = url;
-            outputVideo.style.display = 'block';
-            downloadLink.href = url;
-            downloadLink.style.display = 'inline-block';
-            processBtn.disabled = false;
-        } catch (error) {
-            console.error(error);
-            mainStatus.innerText = "Có lỗi xảy ra trong quá trình xử lý.";
-            processBtn.disabled = false;
-        }
-    }
-</script>
-
-</body>
-</html>
+                ...inputs,
