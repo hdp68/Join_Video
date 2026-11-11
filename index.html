@@ -3,27 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <title>Công cụ ghép video trực tuyến</title>
-    <!-- Nhúng thư viện FFmpeg.wasm -->
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <!-- Sử dụng thư viện FFmpeg bản ổn định qua UMD build -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; max-width: 650px; margin: auto; }
         .box { border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 15px; background: #fafafa; border-radius: 6px; }
         button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; border-radius: 4px; width: 100%; }
         button:disabled { background: #ddd; cursor: not-allowed; }
         
-        /* Panel hiển thị thông tin và danh sách file */
         .status-panel { background: #f1f3f5; border: 1px solid #ced4da; padding: 15px; border-radius: 6px; margin-top: 15px; display: none; }
         .status-panel h4 { margin-top: 0; color: #333; margin-bottom: 10px; font-size: 16px; }
         
-        /* Thanh tiến trình Progress Bar */
         .progress-container { width: 100%; background: #e9ecef; border-radius: 4px; overflow: hidden; height: 20px; margin-bottom: 10px; }
         .progress-bar { width: 0%; height: 100%; background: #4CAF50; text-align: center; color: white; font-size: 12px; line-height: 20px; transition: width 0.2s; }
         
-        /* Danh sách sắp xếp file */
         #fileListContainer { list-style: none; padding: 0; margin: 10px 0; }
         .file-item { display: flex; justify-content: space-between; align-items: center; background: white; border: 1px solid #ddd; padding: 8px 12px; margin-bottom: 5px; border-radius: 4px; font-size: 14px; }
-        .file-actions button { background: #007bff; padding: 4px 8px; font-size: 12px; width: auto; margin-left: 4px; }
-        .file-actions button:disabled { background: #ccc; }
+        .file-actions button { background: #007bff; padding: 4px 8px; font-size: 12px; width: auto; margin-left: 4px; border: none; color: white; cursor: pointer; border-radius: 3px; }
+        .file-actions button:disabled { background: #ccc; cursor: not-allowed; }
 
         video { width: 100%; margin-top: 15px; border-radius: 4px; }
     </style>
@@ -57,11 +55,9 @@
     </div>
 
 <script>
-    const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ 
-        log: true,
-        corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
-    });
+    const { FFmpeg } = FFmpegWASM;
+    const { fetchFile } = FFmpegUtil;
+    let ffmpeg = null;
 
     const uploader = document.getElementById('uploader');
     const processBtn = document.getElementById('processBtn');
@@ -73,7 +69,7 @@
     const outputVideo = document.getElementById('outputVideo');
     const downloadLink = document.getElementById('downloadLink');
 
-    let currentFiles = []; // Mảng lưu trữ danh sách file kèm thời lượng
+    let currentFiles = [];
 
     function getVideoDuration(file) {
         return new Promise((resolve) => {
@@ -101,7 +97,7 @@
             }
 
             renderFileList();
-            progressBar.style.width = '0%';
+            progressBar.style.width = '0%
             progressBar.innerText = '0%';
         } else {
             processBtn.disabled = true;
@@ -110,8 +106,7 @@
         }
     });
 
-    // Hàm hiển thị danh sách giao diện sắp xếp
-    async function renderFileList() {
+    function renderFileList() {
         fileListContainer.innerHTML = '';
         let totalSec = 0;
 
@@ -133,7 +128,6 @@
         mainStatus.innerText = `Sẵn sàng ghép ${currentFiles.length} file video theo thứ tự trên!`;
     }
 
-    // Hàm thay đổi vị trí file lên hoặc xuống
     window.moveItem = function(index, direction) {
         const newIndex = index + direction;
         if (newIndex >= 0 && newIndex < currentFiles.length) {
@@ -150,47 +144,45 @@
         downloadLink.style.display = 'none';
 
         try {
-            if (!ffmpeg.isLoaded()) {
-                mainStatus.innerText = "Đang tải bộ công cụ xử lý video (vui lòng chờ trong giây lát)...";
-                await ffmpeg.load();
+            if (!ffmpeg) {
+                mainStatus.innerText = "Đang khởi tạo bộ công cụ xử lý video...";
+                ffmpeg = new FFmpeg();
+                
+                ffmpeg.on("log", ({ message }) => {
+                    console.log(message);
+                });
+
+                ffmpeg.on("progress", ({ progress }) => {
+                    let percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+                    progressBar.style.width = percent + '%';
+                    progressBar.innerText = percent + '%';
+                    mainStatus.innerText = `Processing = ${percent}%`;
+                });
+
+                await ffmpeg.load({
+                    coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js"
+                });
             }
 
-            let filterComplex = "";
-            let inputs = [];
-
+            let fileListContent = '';
             for (let i = 0; i < currentFiles.length; i++) {
                 let fileName = `input${i}.mp4`;
                 mainStatus.innerText = `Đang nạp file (${i + 1}/${currentFiles.length}): ${currentFiles[i].file.name}`;
-                ffmpeg.FS('writeFile', fileName, await fetchFile(currentFiles[i].file));
-                inputs.push('-i', fileName);
-                filterComplex += `[${i}:v:0][${i}:a:0]`;
+                await ffmpeg.writeFile(fileName, await fetchFile(currentFiles[i].file));
+                fileListContent += `file ${fileName}\n`;
             }
 
-            filterComplex += `concat=n=${currentFiles.length}:v=1:a=1[outv][outa]`;
-
-            // Lắng nghe tiến trình render từ ffmpeg
-            ffmpeg.setProgress(({ ratio }) => {
-                let percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
-                progressBar.style.width = percent + '%';
-                progressBar.innerText = percent + '%';
-                mainStatus.innerText = `Processing = ${percent}%`;
-            });
-
+            await ffmpeg.writeFile('list.txt', fileListContent);
             mainStatus.innerText = "Đang tiến hành ghép nối video...";
             
-            await ffmpeg.run(
-                ...inputs, 
-                '-filter_complex', filterComplex, 
-                '-map', '[outv]', 
-                '-map', '[outa]', 
-                'output.mp4'
-            );
+            // Dùng lệnh copy cực nhanh nếu định dạng chuẩn
+            await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4']);
 
             mainStatus.innerText = "Ghép video thành công!";
             progressBar.style.width = '100%';
             progressBar.innerText = '100%';
             
-            const data = ffmpeg.FS('readFile', 'output.mp4');
+            const data = await ffmpeg.readFile('output.mp4');
             const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
             
             outputVideo.src = url;
@@ -200,7 +192,7 @@
             processBtn.disabled = false;
         } catch (error) {
             console.error(error);
-            mainStatus.innerText = "Có lỗi xảy ra trong quá trình xử lý.";
+            mainStatus.innerText = "Lỗi thực thi: Vui lòng đảm bảo các file video có cùng định dạng MP4.";
             processBtn.disabled = false;
         }
     }
