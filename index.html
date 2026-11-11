@@ -179,4 +179,32 @@
             mainStatus.innerText = "Đang tiến hành ghép nối video...";
             
             await ffmpeg.run(
-                ...inputs,
+                ...inputs, 
+                '-filter_complex', filterComplex, 
+                '-map', '[outv]', 
+                '-map', '[outa]', 
+                'output.mp4'
+            );
+
+            mainStatus.innerText = "Ghép video thành công!";
+            progressBar.style.width = '100%';
+            progressBar.innerText = '100%';
+            
+            const data = ffmpeg.FS('readFile', 'output.mp4');
+            const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+            
+            outputVideo.src = url;
+            outputVideo.style.display = 'block';
+            downloadLink.href = url;
+            downloadLink.style.display = 'inline-block';
+            processBtn.disabled = false;
+        } catch (error) {
+            console.error(error);
+            mainStatus.innerText = "Có lỗi xảy ra trong quá trình xử lý.";
+            processBtn.disabled = false;
+        }
+    }
+</script>
+
+</body>
+</html>
