@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <title>Công cụ ghép video trực tuyến</title>
-    <!-- Nhúng thư viện FFmpeg.wasm -->
+    <!-- Nhúng thư viện FFmpeg.wasm phiên bản ổn định -->
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
         .box { border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 15px; background: #fafafa; }
         button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; border-radius: 4px; }
         button:disabled { background: #ddd; cursor: not-allowed; }
-        #status { font-weight: bold; color: #333; margin-top: 10px; }
+        #status { font-weight: bold; color: #333; margin-top: 10px; white-space: pre-line; }
         video { width: 100%; margin-top: 15px; border-radius: 4px; }
     </style>
 </head>
@@ -23,7 +23,7 @@
     </div>
 
     <button id="processBtn" onclick="mergeVideos()" disabled>Bắt đầu ghép video</button>
-    <p id="status">Vui lòng chọn ít nhất 2 file video MP4...</p>
+    <p id="status">Vui lòng chọn tối thiểu 2 file video MP4...</p>
     
     <div>
         <video id="outputVideo" controls style="display:none;"></video>
@@ -33,7 +33,10 @@
 
 <script>
     const { createFFmpeg, fetchFile } = FFmpeg;
-    const ffmpeg = createFFmpeg({ log: true });
+    const ffmpeg = createFFmpeg({ 
+        log: true,
+        corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+    });
 
     const uploader = document.getElementById('uploader');
     const processBtn = document.getElementById('processBtn');
@@ -53,26 +56,39 @@
 
     async function mergeVideos() {
         processBtn.disabled = true;
+        outputVideo.style.display = 'none';
+        downloadLink.style.display = 'none';
+
         try {
             if (!ffmpeg.isLoaded()) {
-                status.innerText = "Đang tải bộ công cụ xử lý video (lần đầu có thể mất vài giây)...";
+                status.innerText = "Đang tải bộ công cụ xử lý video (lần đầu có thể mất từ 10-30 giây)...";
                 await ffmpeg.load();
             }
 
             const files = uploader.files;
-            let fileListContent = '';
+            let filterComplex = "";
+            let inputs = [];
 
             for (let i = 0; i < files.length; i++) {
                 let fileName = `input${i}.mp4`;
                 status.innerText = `Đang đọc file (${i + 1}/${files.length}): ${files[i].name}`;
                 ffmpeg.FS('writeFile', fileName, await fetchFile(files[i]));
-                fileListContent += `file ${fileName}\n`;
+                inputs.push('-i', fileName);
+                filterComplex += `[${i}:v:0][${i}:a:0]`;
             }
 
-            ffmpeg.FS('writeFile', 'list.txt', fileListContent);
-            status.innerText = "Đang tiến hành ghép video, vui lòng đợi...";
+            filterComplex += `concat=n=${files.length}:v=1:a=1[outv][outa]`;
+
+            status.innerText = "Đang tiến hành xử lý và ghép video (quá trình này mất vài phút tùy độ dài video)...";
             
-            await ffmpeg.run('-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4');
+            // Lệnh re-encode giúp ghép mọi định dạng video khác nhau an toàn tuyệt đối
+            await ffmpeg.run(
+                ...inputs, 
+                '-filter_complex', filterComplex, 
+                '-map', '[outv]', 
+                '-map', '[outa]', 
+                'output.mp4'
+            );
 
             status.innerText = "Ghép video thành công!";
             
@@ -86,7 +102,7 @@
             processBtn.disabled = false;
         } catch (error) {
             console.error(error);
-            status.innerText = "Có lỗi xảy ra trong quá trình ghép video. Hãy đảm bảo các video có cùng thông số!";
+            status.innerText = "Lỗi xử lý: " + (error.message || "Không thể hoàn tất thao tác. Hãy thử video dung lượng nhỏ hơn.");
             processBtn.disabled = false;
         }
     }
