@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
@@ -7,27 +7,28 @@
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
-        .box { border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 15px; }
-        button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; }
-        button:disabled { background: #ddd; }
+        .box { border: 2px dashed #ccc; padding: 20px; text-align: center; margin-bottom: 15px; background: #fafafa; }
+        button { background: #4CAF50; color: white; border: none; padding: 10px 20px; cursor: pointer; font-size: 16px; border-radius: 4px; }
+        button:disabled { background: #ddd; cursor: not-allowed; }
         #status { font-weight: bold; color: #333; margin-top: 10px; }
+        video { width: 100%; margin-top: 15px; border-radius: 4px; }
     </style>
 </head>
 <body>
 
-    <h2>Trang web ghép nối file Video MP4</h2>
+    <h2>Ứng dụng ghép nối file Video MP4</h2>
     <div class="box">
-        <p>Chọn các file video MP4 cần ghép (theo thứ tự):</p>
+        <p>Chọn các file video MP4 cần ghép (giữ Ctrl hoặc Shift để chọn nhiều file):</p>
         <input type="file" id="uploader" accept="video/mp4" multiple>
     </div>
 
     <button id="processBtn" onclick="mergeVideos()" disabled>Bắt đầu ghép video</button>
-    <p id="status">Vui lòng chọn video...</p>
+    <p id="status">Vui lòng chọn ít nhất 2 file video MP4...</p>
     
     <div>
-        <video id="outputVideo" controls style="max-width:100%; margin-top:15px; display:none;"></video>
+        <video id="outputVideo" controls style="display:none;"></video>
         <br>
-        <a id="downloadLink" style="display:none;" download="merged_video.mp4">Tải video về máy</a>
+        <a id="downloadLink" style="display:none; margin-top: 10px; display: inline-block;" download="merged_video.mp4">Tải video đã ghép về máy</a>
     </div>
 
 <script>
@@ -46,47 +47,48 @@
             status.innerText = `Đã chọn ${uploader.files.length} file video. Sẵn sàng xử lý!`;
         } else {
             processBtn.disabled = true;
-            status.innerText = 'Vui lòng chọn ít nhất 2 file video MP4.';
+            status.innerText = 'Vui lòng chọn tối thiểu 2 file video MP4.';
         }
     });
 
-    async.mergeVideos = async function() {
+    async function mergeVideos() {
         processBtn.disabled = true;
-        if (!ffmpeg.isLoaded()) {
-            status.innerText = "Đang tải bộ công cụ xử lý video (có thể mất vài giây)...";
-            await ffmpeg.load();
+        try {
+            if (!ffmpeg.isLoaded()) {
+                status.innerText = "Đang tải bộ công cụ xử lý video (lần đầu có thể mất vài giây)...";
+                await ffmpeg.load();
+            }
+
+            const files = uploader.files;
+            let fileListContent = '';
+
+            for (let i = 0; i < files.length; i++) {
+                let fileName = `input${i}.mp4`;
+                status.innerText = `Đang đọc file (${i + 1}/${files.length}): ${files[i].name}`;
+                ffmpeg.FS('writeFile', fileName, await fetchFile(files[i]));
+                fileListContent += `file ${fileName}\n`;
+            }
+
+            ffmpeg.FS('writeFile', 'list.txt', fileListContent);
+            status.innerText = "Đang tiến hành ghép video, vui lòng đợi...";
+            
+            await ffmpeg.run('-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4');
+
+            status.innerText = "Ghép video thành công!";
+            
+            const data = ffmpeg.FS('readFile', 'output.mp4');
+            const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+            
+            outputVideo.src = url;
+            outputVideo.style.display = 'block';
+            downloadLink.href = url;
+            downloadLink.style.display = 'inline-block';
+            processBtn.disabled = false;
+        } catch (error) {
+            console.error(error);
+            status.innerText = "Có lỗi xảy ra trong quá trình ghép video. Hãy đảm bảo các video có cùng thông số!";
+            processBtn.disabled = false;
         }
-
-        const files = uploader.files;
-        let fileListContent = '';
-
-        // Đưa các file vào bộ nhớ ảo của ffmpeg
-        for (let i = 0; i < files.length; i++) {
-            let fileName = `input${i}.mp4`;
-            status.innerText = `Đang đọc file: ${files[i].name}`;
-            ffmpeg.FS('writeFile', fileName, await fetchFile(files[i]));
-            fileListContent += `file ${fileName}\n`;
-        }
-
-        // Tạo file danh sách cho ffmpeg
-        ffmpeg.FS('writeFile', 'list.txt', fileListContent);
-
-        status.innerText = "Đang tiến hành ghép video, vui lòng đợi...";
-        
-        // Chạy lệnh ffmpeg để ghép video không cần re-encode (nếu các video cùng định dạng)
-        await ffmpeg.run('-f', 'concat', '-safe', '0', '-i', 'list.txt', '-c', 'copy', 'output.mp4');
-
-        status.innerText = "Ghép video thành công!";
-        
-        const data = ffmpeg.FS('readFile', 'output.mp4');
-        const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
-        
-        outputVideo.src = url;
-        outputVideo.style.display = 'block';
-        downloadLink.href = url;
-        downloadLink.style.display = 'inline-block';
-        downloadLink.innerText = "Tải video đã ghép về máy";
-        processBtn.disabled = false;
     }
 </script>
 
